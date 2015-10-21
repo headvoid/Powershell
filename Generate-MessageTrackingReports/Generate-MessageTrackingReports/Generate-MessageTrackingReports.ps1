@@ -10,6 +10,8 @@ V0.2 - Added counters to total size of send and receive
      - Removed noisy HealthMailbox entries
 #>
 
+# TODO - Change these to externally setable parameters. 
+
 $NumberOfDays = 1
 $CurrentDay = 0
 $StartDate = Get-Date "8/11/2015 00:01:00"
