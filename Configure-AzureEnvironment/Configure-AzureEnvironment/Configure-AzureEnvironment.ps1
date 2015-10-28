@@ -1,6 +1,7 @@
 ﻿<#
 
 AzureRM : https://azure.microsoft.com/en-us/blog/azps-1-0-pre/
+Creating VM: https://azure.microsoft.com/en-gb/documentation/articles/virtual-machines-create-windows-powershell-resource-manager/
 
 #>
 
