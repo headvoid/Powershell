@@ -9,8 +9,41 @@ PARAM
 	[string]$LocalNetworksFile="D:\Google Drive\Acland\Azure Migration\Design\Script\LocalNetworks.csv",
 	[string]$AzureSubnetsFile="D:\Google Drive\Acland\Azure Migration\Design\Script\AzureSubnets.csv",
 	[string]$AzureNetworkFile="D:\Google Drive\Acland\Azure Migration\Design\Script\AzureNetworks.csv",
+	[string]$AzureVMFile="D:\Google Drive\Acland\Azure Migration\Design\Script\VirtualMachines.csv",
 	[string]$AzureNetworkModulePath="D:\Google Drive\Scripts\AzureNetworking-1.0.2\AzureNetworking.psd1"
 )
+
+function Get-IPSubnet()
+{
+	PARAM
+	(
+		[parameter(Mandatory=$true)]$IPAddress
+	)
+
+	foreach($subnets in $AzureSubnets)
+	{
+		$SubnetRange = $subnets.Range -split " - "
+
+		$IPStartRange = $SubnetRange[0]
+		$IPEndRange = $SubnetRange[1]
+
+		$ParseIP = [System.Net.IPAddress]::Parse($IPAddress).GetAddressBytes()
+		[Array]::Reverse($ParseIP)
+		$ParseIP = [System.BitConverter]::ToUInt32($ParseIP, 0)
+		$ParseStartIP = [System.Net.IPAddress]::Parse($IPStartRange).GetAddressBytes()
+		[Array]::Reverse($ParseStartIP)
+		$ParseStartIP = [System.BitConverter]::ToUInt32($ParseStartIP, 0)
+		$ParseEndIP = [System.Net.IPAddress]::Parse($IPEndRange).GetAddressBytes()
+		[Array]::Reverse($ParseEndIP)
+		$ParseEndIP = [System.BitConverter]::ToUInt32($ParseEndIP, 0)
+
+		if (($ParseStartIP -le $ParseIP) -and ($ParseIP -le $ParseEndIP)) 
+		{
+			return $subnets
+		}
+
+	}
+}
 
 function Load-AzureModule()
 {
@@ -69,21 +102,26 @@ PARAM
 #$SelectedSub = Select-TextItem $subscriptions "SubscriptionName"
 #Select-AzureSubscription -SubscriptionId $SelectedSub.SubscriptionId
 
+# Load all of the CSV files we've created during the Design
+
 $LocalNetworks = Import-CSV $LocalNetworksFile 
 $AzureSubnets = Import-CSV $AzureSubnetsFile
 $AzureNetworks = Import-CSV $AzureNetworkFile
+$AzureVM = Import-Csv $AzureVMFile
 
 #Switch-AzureMode -Name AzureResourceManager
 
 #TODO - improve this section - hard coded AUS EAST
-$ResourceGroups = $AzureNetworks.ResourceGroup |select -Unique
+$ResourceGroups = $AzureNetworks |Select-Object Location,ResourceGroup -Unique
+
+<#
 
 # Create the Resource Groups
 foreach($RG in $ResourceGroups)
 {
 	# check to see if it already exists
 
-	New-AzureRMResourceGroup -Name $RG -location "Australia East" -Force
+	New-AzureRMResourceGroup -Name $RG.ResourceGroup -location $RG.Location -Force
 }
 # Create the VNET
 foreach($vnets in $AzureNetworks)
@@ -117,3 +155,44 @@ foreach($localsite in $LocalNetworks)
 	$locationofRG = (Get-AzureRmResourceGroup -Name $localsite.Resource).Location
 	New-AzureRmLocalNetworkGateway -Name $localsite.Name -ResourceGroupName $localsite.Resource -GatewayIpAddress $localsite.Gateway -AddressPrefix $localsite.Internal -Location $locationofRG
 }
+
+#>
+
+$ResourceGroups = $AzureVM |Select-Object Location,ResourceGroup -Unique
+<#
+# Create the Resource Groups
+foreach($RG in $ResourceGroups)
+{
+	# check to see if it already exists
+
+	New-AzureRMResourceGroup -Name $RG.ResourceGroup -location $RG.Location -Force
+}
+
+
+#>
+$vmCredentials = Get-Credential -Message "Type the name and password of the local administrator account."
+
+foreach($vm in $AzureVM)
+{
+
+	New-AzureRmAvailabilitySet -ResourceGroupName $vm.ResourceGroup -Location $vm.Location -Name $vm.AvailabilitySet
+
+	$AvailabilitySetId = (Get-AzureRmAvailabilitySet -Name $vm.AvailabilitySet -ResourceGroupName $vm.ResourceGroup).Id
+	$vmConfig = New-AzureRmVMConfig -VMName $vm.Name -VMSize $vm.Size -AvailabilitySetId $AvailabilitySetId
+	$vmConfig = Set-AzureRmVMOperatingSystem -VM $vmConfig -Windows -ComputerName $vm.Name -Credential $vmCredentials -ProvisionVMAgent -EnableAutoUpdate
+	$vmConfig = Set-AzureRmVMSourceImage -VM $vmConfig -PublisherName MicrosoftWindowsServer -Offer WindowsServer -Skus 2012-R2-Datacenter -Version "latest"
+	
+	# This locates and variabilizes the subnet that we need to assign the machine too
+
+	$subnet = Get-IPSubnet($vm.IPAddress)
+	
+	$subnetResourceGroup = ($AzureNetworks |where {$_.Name -eq $subnet.Name}).ResourceGroup
+	
+	$subnetVNet = Get-AzureRmVirtualNetwork -Name $subnet.Name -ResourceGroupName $subnetResourceGroup
+	$subnetConfig = Get-AzureRmVirtualNetworkSubnetConfig -Name "Production" -VirtualNetwork $subnetVNet 
+	$nic = Add-AzureRmVMNetworkInterface -VM $vmConfig -Id $subnetConfig.Id
+	
+	New-AzureRmVM -ResourceGroupName $vm.ResourceGroup -Location $vm.Location -VM $vmConfig
+}
+
+
