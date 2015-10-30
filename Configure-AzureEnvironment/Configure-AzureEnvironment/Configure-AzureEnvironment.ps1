@@ -93,9 +93,9 @@ PARAM
 #Load-AzureModule
 #Import-Module $AzureNetworkModulePath
 #Import-Module Azure
-#Import-Module AzureRM
+Import-Module AzureRM
 
-#Login-AzureRmAccount
+Login-AzureRmAccount
 
 #Add-AzureAccount
 
@@ -115,7 +115,7 @@ $AzureVM = Import-Csv $AzureVMFile
 #TODO - improve this section - hard coded AUS EAST
 $ResourceGroups = $AzureNetworks |Select-Object Location,ResourceGroup -Unique
 
-<#
+
 
 # Create the Resource Groups
 foreach($RG in $ResourceGroups)
@@ -157,29 +157,29 @@ foreach($localsite in $LocalNetworks)
 	New-AzureRmLocalNetworkGateway -Name $localsite.Name -ResourceGroupName $localsite.Resource -GatewayIpAddress $localsite.Gateway -AddressPrefix $localsite.Internal -Location $locationofRG
 }
 
-#>
+
 
 $ResourceGroups = $AzureVM |Select-Object Location,ResourceGroup -Unique
-<#
+
 # Create the Resource Groups
 foreach($RG in $ResourceGroups)
 {
 	# check to see if it already exists
 
 	New-AzureRMResourceGroup -Name $RG.ResourceGroup -location $RG.Location -Force
+    New-AzureRmStorageAccount -ResourceGroupName $RG.ResourceGroup -Name $RG.ResourceGroup.ToLower() -Type 'Standard_GRS' -Location $RG.Location
 }
 
-
-#>
 $vmCredentials = Get-Credential -Message "Type the name and password of the local administrator account."
+
+Start-Transcript -path c:\users\justin\Desktop\test.txt
 
 foreach($vm in $AzureVM)
 {
-
 	New-AzureRmAvailabilitySet -ResourceGroupName $vm.ResourceGroup -Location $vm.Location -Name $vm.AvailabilitySet
 
 	$AvailabilitySetId = (Get-AzureRmAvailabilitySet -Name $vm.AvailabilitySet -ResourceGroupName $vm.ResourceGroup).Id
-	$vmConfig = New-AzureRmVMConfig -VMName $vm.Name -VMSize $vm.Size -AvailabilitySetId $AvailabilitySetId
+	$vmConfig = New-AzureRmVMConfig -VMName $vm.Name -VMSize $vm.Size
 	$vmConfig = Set-AzureRmVMOperatingSystem -VM $vmConfig -Windows -ComputerName $vm.Name -Credential $vmCredentials -ProvisionVMAgent -EnableAutoUpdate
 	$vmConfig = Set-AzureRmVMSourceImage -VM $vmConfig -PublisherName MicrosoftWindowsServer -Offer WindowsServer -Skus 2012-R2-Datacenter -Version "latest"
 	
@@ -191,9 +191,21 @@ foreach($vm in $AzureVM)
 	
 	$subnetVNet = Get-AzureRmVirtualNetwork -Name $subnet.Name -ResourceGroupName $subnetResourceGroup
 	$subnetConfig = Get-AzureRmVirtualNetworkSubnetConfig -Name "Production" -VirtualNetwork $subnetVNet 
-	$nic = Add-AzureRmVMNetworkInterface -VM $vmConfig -Id $subnetConfig.Id
-	
-	New-AzureRmVM -ResourceGroupName $vm.ResourceGroup -Location $vm.Location -VM $vmConfig
+
+	Write-Host "******************************** NICNAME BELOW "
+	$nicName = $vm.Name.ToLower()+"_"+$vm.Subnet.ToLower()+"_nic"
+
+	$nic = New-AzureRmNetworkInterface -Name $nicName -ResourceGroupName $vm.ResourceGroup -Location $vm.Location -SubnetId $subnetConfig.Id
+	$vmConfig = Add-AzureRmVMNetworkInterface -VM $vmConfig -Id $nic.Id
+
+    $storage=Get-AzureRmStorageAccount -ResourceGroupName $vm.ResourceGroup -Name $vm.ResourceGroup.ToLower()
+    $osDiskUri = $storage.PrimaryEndpoints.Blob.ToString() + "vhds/"+$vm.Name+"-osdrive.vhd"
+
+    $vmConfig = Set-AzureRmVMOSDisk -VM $vmConfig -Name "windowsvmosdisk" -VhdUri $osDiskUri -CreateOption fromImage
+
+	$vmConfig
+	New-AzureRmVM -ResourceGroupName $vm.ResourceGroup -Location $vm.Location -VM $vmConfig 
 }
 
 
+Stop-Transcript
