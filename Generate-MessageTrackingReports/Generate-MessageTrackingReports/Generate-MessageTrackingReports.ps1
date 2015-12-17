@@ -8,19 +8,21 @@ Repeats for the number of days required
 V0.1 - Inital creation - Justin Whelan
 V0.2 - Added counters to total size of send and receive
      - Removed noisy HealthMailbox entries
+V0.3 - Cleaned up date and time to allow Number of Days to work. Now requires a negative value
+	 - Added "testing" option, which changes the days to hours
+	 - Added quick stat displays at the end of the script run
 #>
 
-# TODO - Change these to externally setable parameters. 
+$NumberOfDays = -10
+$RefDate = Get-Date
 
-$NumberOfDays = 1
-$CurrentDay = 0
-$StartDate = Get-Date "8/11/2015 00:01:00"
-$EndDate = Get-Date "8/11/2015 23:59:00"
+
+# set to 1 if testing the script, turns days in to hours
+$testing = 0
 
 $SMTP = @()
 $STORE = @()
 
-# TODO - This needs to be replaced as microsoft are removing the command
 $Servers = Get-TransportServer
 
 function CountMessageSize($s)
@@ -37,9 +39,21 @@ function CountMessageSize($s)
 
 foreach($server in $servers)
 {
-    while($CurrentDay -ne $NumberOfDays)
-    {
-        $a = Get-MessageTrackingLog -Start $StartDate.AddDays($CurrentDay) -End $EndDate.AddDays($CurrentDay) -Server $Server.Name -ResultSize unlimited
+    Write-Host "Server: $server"
+    Write-Host "Start: "$RefDate.AddDays($NumberOfDays)" to "$RefDate
+    #while($CurrentDay -ne $NumberOfDays)
+    #{
+
+
+        If($testing -ne 1)
+        {
+           $a = Get-MessageTrackingLog -Start $RefDate.AddDays($NumberOfDays) -End $RefDate -Server $Server.Name -ResultSize unlimited
+        }
+        else
+        {
+            $a = Get-MessageTrackingLog -Start $RefDate.AddHours($NumberOfDays) -End $RefDate -Server $Server.Name -ResultSize unlimited
+        }
+            
 
         <#
 
@@ -111,9 +125,57 @@ foreach($server in $servers)
 
         $SMTP += New-Object -TypeName PSObject -Property $SMTPO
         $STORE += New-Object -TypeName PSObject -Property $STOREO
-        $CurrentDay++
-    }
+        $CurrentDay--
+    #}
     $CurrentDay = 0
 }
+
+# output some quick stats
+Write-Host "Preparing quick stats..."
+
+$mailboxes = (Get-Mailbox).Count
+
+# prepare variables
+$sendreceive = 0
+$sendreceivebytes = 0
+$NumberOfDays = $NumberOfDays * -1
+
+Foreach($mailsend in $SMTP)
+{
+    # add up all of the send and receive columns for SMTP
+    $mailsend
+
+    $sendreceive = $sendreceive + $mailsend.SEND
+    $sendreceive = $sendreceive + $mailsend.RECEIVE
+
+    # add up all of the sent and received bytes
+
+    $sendreceivebytes = $sendreceivebytes + $mailsend.SENDBYTES
+    $sendreceivebytes = $sendreceivebytes + $mailsend.RECEIVEBYTES
+}
+
+Foreach($mailsend in $STORE)
+{
+    # add up all of the send and receive columns for SMTP
+    $mailsend
+    $sendreceive = $sendreceive + $mailsend.DELIVER
+    $sendreceive = $sendreceive + $mailsend.RECEIVE
+    $sendreceive = $sendreceive + $mailsend.SUBMIT
+
+    # add up all of the sent and received bytes
+
+    $sendreceivebytes = $sendreceivebytes + $mailsend.RECEIVEBYTES
+}
+
+Write-Host "Total Mails Sent and Received = "$sendreceive
+
+Write-Host "Total Mail Bytes Sent and Received = "$sendreceivebytes
+Write-Host "Total Mail GB Sent and Received = "($sendreceivebytes/1024/1024/1024)
+Write-Host "Number of Mailboxes = "$mailboxes
+Write-Host "Number of Days Average taken over = "$NumberOfDays
+$AvgPerUser = ($sendreceive/$NumberOfDays/$mailboxes)
+Write-Host "Number of Emails per user per day = "$AvgPerUser
+Write-Host "Size of Average Email in kb = "($sendreceivebytes/$NumberOfDays/$mailboxes/$AvgPerUser/1024)
+
 $SMTP |Export-Csv smtp.csv
 $STORE | Export-Csv store.csv
