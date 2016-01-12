@@ -7,11 +7,11 @@ Creating VM: https://azure.microsoft.com/en-gb/documentation/articles/virtual-ma
 
 PARAM
 (
-	[string]$LocalNetworksFile="D:\Google Drive\Acland\Azure Migration\Design\Script\LocalNetworks.csv",
-	[string]$AzureSubnetsFile="D:\Google Drive\Acland\Azure Migration\Design\Script\AzureSubnets.csv",
-	[string]$AzureNetworkFile="D:\Google Drive\Acland\Azure Migration\Design\Script\AzureNetworks.csv",
-	[string]$AzureVMFile="D:\Google Drive\Acland\Azure Migration\Design\Script\VirtualMachines.csv",
-	[string]$AzureNetworkModulePath="D:\Google Drive\Scripts\AzureNetworking-1.0.2\AzureNetworking.psd1"
+	[string]$LocalNetworksFile="C:\Users\Justin\Google Drive\Acland\Azure Migration\Design\Script\LocalNetworks.csv",
+	[string]$AzureSubnetsFile="C:\Users\Justin\Google Drive\Acland\Azure Migration\Design\Script\AzureSubnets.csv",
+	[string]$AzureNetworkFile="C:\Users\Justin\Google Drive\Acland\Azure Migration\Design\Script\AzureNetworks.csv",
+	[string]$AzureVMFile="C:\Users\Justin\Google Drive\Acland\Azure Migration\Design\Script\VirtualMachines.csv",
+	[string]$AzureNetworkModulePath="C:\Users\Justin\Google Drive\Scripts\AzureNetworking-1.0.2\AzureNetworking.psd1"
 )
 
 function Get-IPSubnet()
@@ -95,7 +95,7 @@ PARAM
 #Import-Module Azure
 Import-Module AzureRM
 
-Login-AzureRmAccount
+#Login-AzureRmAccount
 
 #Add-AzureAccount
 
@@ -125,6 +125,8 @@ foreach($RG in $ResourceGroups)
 	New-AzureRMResourceGroup -Name $RG.ResourceGroup -location $RG.Location -Force
 }
 # Create the VNET
+
+
 foreach($vnets in $AzureNetworks)
 {
 	$GatewaySubnet = $AzureSubnets |where {$_.Subnets -eq "GatewaySubnet" -and $_.Name -eq $vnets.Name}
@@ -170,6 +172,8 @@ foreach($RG in $ResourceGroups)
     New-AzureRmStorageAccount -ResourceGroupName $RG.ResourceGroup -Name $RG.ResourceGroup.ToLower() -Type 'Standard_GRS' -Location $RG.Location
 }
 
+
+
 $vmCredentials = Get-Credential -Message "Type the name and password of the local administrator account."
 
 Start-Transcript -path c:\users\justin\Desktop\test.txt
@@ -195,7 +199,7 @@ foreach($vm in $AzureVM)
 	Write-Host "******************************** NICNAME BELOW "
 	$nicName = $vm.Name.ToLower()+"_"+$vm.Subnet.ToLower()+"_nic"
 
-	$nic = New-AzureRmNetworkInterface -Name $nicName -ResourceGroupName $vm.ResourceGroup -Location $vm.Location -SubnetId $subnetConfig.Id
+	$nic = New-AzureRmNetworkInterface -Name $nicName -ResourceGroupName $vm.ResourceGroup -Location $vm.Location -SubnetId $subnetConfig.Id -PrivateIpAddress $vm.IPAddress -Force
 	$vmConfig = Add-AzureRmVMNetworkInterface -VM $vmConfig -Id $nic.Id
 
     $storage=Get-AzureRmStorageAccount -ResourceGroupName $vm.ResourceGroup -Name $vm.ResourceGroup.ToLower()
@@ -206,6 +210,5 @@ foreach($vm in $AzureVM)
 	$vmConfig
 	New-AzureRmVM -ResourceGroupName $vm.ResourceGroup -Location $vm.Location -VM $vmConfig 
 }
-
 
 Stop-Transcript
